@@ -1,0 +1,16 @@
+{
+  "name": "embassy-entry-system",
+  "version": "1.0.0",
+  "description": "Embassy Entry Number System with PalmPesa payments",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": ["embassy", "queue", "ticketing", "palmpesa", "tanzania"],
+  "author": "",
+  "license": "MIT"
+}
