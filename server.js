@@ -40,8 +40,17 @@ function saveDB() {
 loadDB();
 
 // ===== PALMPESA API =====
+// Convert phone from local 0754... format to international 255... format
+function formatPhone(phone) {
+  const clean = phone.replace(/\s/g, '').replace(/^\+/, '');
+  if (clean.startsWith('0')) return '255' + clean.substring(1);
+  if (clean.startsWith('255')) return clean;
+  return clean;
+}
+
 async function ppInitiate(data) {
-  const res = await fetch(PP_BASE + '/palmpesa/initiate', {
+  const phone = formatPhone(data.phone);
+  const res = await fetch(PP_BASE + '/pay-via-mobile', {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${PP_KEY}`,
@@ -49,13 +58,15 @@ async function ppInitiate(data) {
       'Accept': 'application/json',
     },
     body: JSON.stringify({
+      user_id: PP_VENDOR,
       name: data.name,
       email: data.email || 'noemail@example.com',
-      phone: data.phone,
+      phone: phone,
       amount: data.amount,
       transaction_id: data.transaction_id,
       address: 'Dar es Salaam',
       postcode: '11111',
+      buyer_uuid: data.buyer_uuid || 1,
       callback_url: data.callback_url,
     }),
   });
