@@ -12,7 +12,7 @@ const path = require('path');
 const PORT = process.env.PORT || 3000;
 const CALLBACK_HOST = process.env.CALLBACK_HOST || 'https://embassy.kobeapptz.com';
 const PP_KEY = '0HNndAwG6NIXcksD1kRxHVHMgUtDi8GqgMfMQrymleH8HluAdA1ZRAl2jG3B';
-const PP_VENDOR = '531'; // PalmPesa Vendor ID
+const PP_VENDOR = '531';
 const PP_BASE = 'https://palmpesa.drmlelwa.co.tz/api';
 
 // ===== IN-MEMORY DATABASE =====
@@ -51,7 +51,7 @@ async function ppInitiate(data) {
     body: JSON.stringify({
       name: data.name,
       email: data.email || 'noemail@example.com',
-      phone: data.phone,
+      phone: data.phone.replace(/^\+?255/, '0').replace(/^\+/, ''),
       amount: data.amount,
       transaction_id: data.transaction_id,
       address: 'Dar es Salaam',
@@ -91,7 +91,7 @@ const routes = {
       status: 'pending',
       queue_position: DB.counter,
       order_id: null, tx_id: null,
-      channel: null, amount: 100,
+      channel: null, amount: 5000,
       created_at: new Date().toISOString(),
       paid_at: null, used_at: null,
     });
