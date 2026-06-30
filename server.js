@@ -12,7 +12,7 @@ const path = require('path');
 const PORT = process.env.PORT || 3000;
 const CALLBACK_HOST = process.env.CALLBACK_HOST || 'https://embassy.kobeapptz.com';
 const PP_KEY = '0HNndAwG6NIXcksD1kRxHVHMgUtDi8GqgMfMQrymleH8HluAdA1ZRAl2jG3B';
-const PP_VENDOR = '531';
+const PP_VENDOR = '531'; // PalmPesa Vendor ID
 const PP_BASE = 'https://palmpesa.drmlelwa.co.tz/api';
 
 // ===== IN-MEMORY DATABASE =====
