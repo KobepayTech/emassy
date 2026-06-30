@@ -202,10 +202,13 @@ export default {
     if (base === "ticket" && param) {
       const ticket = tickets.find(t => t.number === param || t.id === param);
       if (!ticket) return json({ error: "Ticket not found" }, 404);
-      const ahead = tickets.filter(t => t.status === "active" && t.number < ticket.number).length;
-      const pendingAhead = tickets.filter(t => t.status === "pending" && t.number < ticket.number).length;
+      const allActive = tickets.filter(t => t.status === "active");
+      const allPending = tickets.filter(t => t.status === "pending");
+      // Calculate ahead by queue_position (more reliable than string comparison)
+      const ahead = allActive.filter(t => t.queue_position < ticket.queue_position).length;
+      const pendingAhead = allPending.filter(t => t.queue_position < ticket.queue_position).length;
       const timeLeft = ticket.status === "pending" ? Math.max(0, Math.round(TIMEOUT_MINUTES - minutesSince(ticket.created_at))) : 0;
-      return json({ ticket: { ...ticket, ahead_in_queue: ahead, pending_ahead: pendingAhead, minutes_left: timeLeft } });
+      return json({ ticket: { ...ticket, ahead_in_queue: ahead, pending_ahead: pendingAhead, minutes_left: timeLeft, total_active: allActive.length, total_pending: allPending.length } });
     }
 
     // --- INITIATE PAYMENT ---
@@ -258,8 +261,8 @@ export default {
 
       if (ticket.status === "expired") return json({ status: "expired", message: "Ticket expired. Get a new number." }, 400);
       if (ticket.status === "active") {
-        const ahead = tickets.filter(t => t.status === "active" && t.number < ticket.number).length;
-        return json({ status: "active", ticket: { ...ticket, ahead_in_queue: ahead } });
+        const ahead = tickets.filter(t => t.status === "active" && t.queue_position < ticket.queue_position).length;
+        return json({ status: "active", ticket: { ...ticket, ahead_in_queue: ahead, total_active: tickets.filter(t => t.status === "active").length } });
       }
       if (ticket.status === "used") return json({ status: "used", ticket });
 
@@ -284,8 +287,10 @@ export default {
             await saveTickets(env, tickets);
             // Reassign numbers: paid ticket moves to lowest available
             tickets = await reassignAllNumbers(env);
-            const ahead = tickets.filter(t => t.status === "active" && t.number < ticket.number).length;
-            return json({ status: "active", ticket: { ...ticket, ahead_in_queue: ahead } });
+            // Find updated ticket in new array (old reference is stale)
+            const updatedTicket = tickets.find(t => t.id === ticket.id) || ticket;
+            const ahead = tickets.filter(t => t.status === "active" && t.number < updatedTicket.number).length;
+            return json({ status: "active", ticket: { ...updatedTicket, ahead_in_queue: ahead } });
           }
         } catch(e) {}
       }
@@ -340,8 +345,9 @@ export default {
           ticket.channel = body.channel || (body.data && body.data[0] && body.data[0].channel);
           await saveTickets(env, tickets);
           // Reassign all numbers after payment
-          await reassignAllNumbers(env);
-          return json({ success: true, message: "Ticket activated", number: ticket.number });
+          tickets = await reassignAllNumbers(env);
+          const updatedTicket = tickets.find(t => t.id === ticket.id) || ticket;
+          return json({ success: true, message: "Ticket activated", number: updatedTicket.number });
         }
       }
       return json({ success: true, message: `Status: ${status}` });
