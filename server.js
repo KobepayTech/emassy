@@ -51,7 +51,7 @@ async function ppInitiate(data) {
     body: JSON.stringify({
       name: data.name,
       email: data.email || 'noemail@example.com',
-      phone: data.phone.replace(/^\+?255/, '0').replace(/^\+/, ''),
+      phone: data.phone,
       amount: data.amount,
       transaction_id: data.transaction_id,
       address: 'Dar es Salaam',
@@ -91,7 +91,7 @@ const routes = {
       status: 'pending',
       queue_position: DB.counter,
       order_id: null, tx_id: null,
-      channel: null, amount: 5000,
+      channel: null, amount: 20000,
       created_at: new Date().toISOString(),
       paid_at: null, used_at: null,
     });
