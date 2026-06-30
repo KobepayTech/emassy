@@ -74,6 +74,7 @@ async function reassignAllNumbers(env) {
   for (const t of active) {
     const newNum = "E-" + pad(seq);
     if (t.number !== newNum || t.queue_position !== seq) {
+      if (!t.original_number) t.original_number = t.number;
       t.number = newNum;
       t.queue_position = seq;
       changed = true;
@@ -83,6 +84,7 @@ async function reassignAllNumbers(env) {
   for (const t of pending) {
     const newNum = "E-" + pad(seq);
     if (t.number !== newNum || t.queue_position !== seq) {
+      if (!t.original_number) t.original_number = t.number;
       t.number = newNum;
       t.queue_position = seq;
       changed = true;
@@ -202,11 +204,12 @@ export default {
 
     // --- GET TICKET (by ID or number) ---
     if (base === "ticket" && param) {
-      const ticket = tickets.find(t => t.number === param || t.id === param);
+      // Search by current number, original number, or ID
+      const ticket = tickets.find(t => t.number === param || t.id === param || t.original_number === param);
       if (!ticket) return json({ error: "Ticket not found" }, 404);
       const allActive = tickets.filter(t => t.status === "active");
       const allPending = tickets.filter(t => t.status === "pending");
-      // Calculate ahead by queue_position (more reliable than string comparison)
+      // Calculate ahead by queue_position
       const ahead = allActive.filter(t => t.queue_position < ticket.queue_position).length;
       const pendingAhead = allPending.filter(t => t.queue_position < ticket.queue_position).length;
       const timeLeft = ticket.status === "pending" ? Math.max(0, Math.round(TIMEOUT_MINUTES - minutesSince(ticket.created_at))) : 0;
@@ -380,6 +383,21 @@ export default {
       await saveTickets(env, tickets);
       await reassignAllNumbers(env);
       return json({ success: true, message: "Ticket manually activated", ticket: { number: ticket.number, name: ticket.name, status: "active" } });
+    }
+
+    // --- DEBUG: DUMP ALL TICKETS ---
+    if (path === "/api/admin/tickets" && method === "GET") {
+      const simplified = tickets.map(t => ({
+        number: t.number,
+        original: t.original_number || t.number,
+        name: t.name,
+        status: t.status,
+        queue_pos: t.queue_position,
+        paid_at: t.paid_at,
+        created: t.created_at,
+        bump_count: t.bump_count || 0,
+      }));
+      return json({ total: tickets.length, tickets: simplified });
     }
 
     return json({ error: "Not found" }, 404);
