@@ -11,6 +11,7 @@ const CORS = {
 
 const TIMEOUT_MINUTES = 60;
 const BUMP_INTERVAL_MINUTES = 5;
+const BUMP_INTERVAL_SECONDS = BUMP_INTERVAL_MINUTES * 60;
 const MAX_PAID_GAP = 15;
 const ENTRY_FEE = 20000;
 
@@ -187,6 +188,8 @@ export default {
         status: "pending",
         amount: ENTRY_FEE,
         created_at: now(),
+        last_bumped_at: now(),
+        bump_count: 0,
         paid_at: null, used_at: null, expired_at: null,
         order_id: null, tx_id: null, channel: null,
       });
@@ -287,8 +290,40 @@ export default {
         } catch(e) {}
       }
 
+      // Calculate bump countdown
+      const lastBumpTime = ticket.last_bumped_at || ticket.created_at;
+      const secondsSinceBump = (Date.now() - new Date(lastBumpTime).getTime()) / 1000;
+      const bumpInSeconds = Math.max(0, Math.round(BUMP_INTERVAL_SECONDS - secondsSinceBump));
       const timeLeft = Math.max(0, Math.round(TIMEOUT_MINUTES - minutesSince(ticket.created_at)));
-      return json({ status: "pending", ticket, minutes_left: timeLeft });
+
+      // Check if should bump now (interval reached)
+      if (secondsSinceBump >= BUMP_INTERVAL_SECONDS) {
+        ticket.bump_count = (ticket.bump_count || 0) + 1;
+        ticket.last_bumped_at = now();
+        await saveTickets(env, tickets);
+        // Reassign all numbers - this ticket will get pushed to end
+        tickets = await reassignAllNumbers(env);
+        // Find ticket with updated number
+        const bumpedTicket = tickets.find(t => t.id === ticket.id);
+        if (bumpedTicket) {
+          return json({ 
+            status: "bumped", 
+            message: "Your number changed due to non-payment!", 
+            old_number: param,
+            ticket: bumpedTicket,
+            bump_count: bumpedTicket.bump_count,
+            bump_in_seconds: BUMP_INTERVAL_SECONDS
+          });
+        }
+      }
+
+      return json({ 
+        status: "pending", 
+        ticket, 
+        minutes_left: timeLeft,
+        bump_in_seconds: bumpInSeconds,
+        bump_count: ticket.bump_count || 0
+      });
     }
 
     // --- WEBHOOK ---
