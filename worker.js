@@ -24,15 +24,6 @@ async function getTickets(env) {
 async function saveTickets(env, tickets) {
   await env.DB.put("tickets", JSON.stringify(tickets));
 }
-async function getCounter(env) {
-  try { const c = await env.DB.get("counter"); return c ? parseInt(c) : 0; }
-  catch(e) { return 0; }
-}
-async function incCounter(env) {
-  const c = await getCounter(env) + 1;
-  await env.DB.put("counter", String(c));
-  return c;
-}
 
 function json(data, status) {
   return new Response(JSON.stringify(data), { status: status || 200, headers: CORS });
@@ -46,79 +37,59 @@ function formatPhone(phone) {
   return clean;
 }
 
-// ===== QUEUE LOGIC =====
 function now() { return new Date().toISOString(); }
-
 function minutesSince(isoDate) {
   return (Date.now() - new Date(isoDate).getTime()) / 60000;
 }
 
-// Check if ticket is expired (60 min unpaid OR 15 paid tickets after it)
-function isExpired(ticket, allTickets) {
-  if (ticket.status !== "pending") return false;
-  // Rule 1: 60 minutes without payment
-  if (minutesSince(ticket.created_at) >= TIMEOUT_MINUTES) return true;
-  // Rule 2: 15 paid tickets came after
-  const paidAfter = allTickets.filter(t => 
-    t.status === "active" && t.queue_position > ticket.queue_position
-  ).length;
-  if (paidAfter >= MAX_PAID_GAP) return true;
-  return false;
-}
-
-// Check if ticket should be bumped (every 5 min unpaid)
-function shouldBump(ticket) {
-  if (ticket.status !== "pending") return false;
-  const lastBump = ticket.last_bumped_at || ticket.created_at;
-  return minutesSince(lastBump) >= BUMP_INTERVAL_MINUTES;
-}
-
-// Reassign queue positions: paid first, then pending (by creation time), expired removed
-async function reassignQueue(env) {
+// ===== CORE: Reassign ALL numbers sequentially =====
+// Paid tickets get E-001, E-002, ... (order of payment)
+// Unpaid tickets get E-00N+1, E-00N+2, ... (order of creation)
+// All numbers ALWAYS sequential, no gaps
+async function reassignAllNumbers(env) {
   let tickets = await getTickets(env);
   let changed = false;
 
-  // Mark expired tickets
+  // 1. Mark expired tickets
   for (const t of tickets) {
-    if (t.status === "pending" && isExpired(t, tickets)) {
-      t.status = "expired";
-      t.expired_at = now();
-      changed = true;
+    if (t.status === "pending") {
+      const timeExpired = minutesSince(t.created_at) >= TIMEOUT_MINUTES;
+      const paidAfter = tickets.filter(x => x.status === "active" && x.created_at > t.created_at).length;
+      if (timeExpired || paidAfter >= MAX_PAID_GAP) {
+        t.status = "expired";
+        t.expired_at = now();
+        changed = true;
+      }
     }
   }
 
-  // Sort: active (paid) first by queue_position, then pending by creation time
-  const active = tickets.filter(t => t.status === "active").sort((a, b) => a.queue_position - b.queue_position);
+  // 2. Sort: active first (by paid_at), then pending (by created_at)
+  const active = tickets.filter(t => t.status === "active").sort((a, b) => new Date(a.paid_at) - new Date(b.paid_at));
   const pending = tickets.filter(t => t.status === "pending").sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
   const others = tickets.filter(t => t.status !== "active" && t.status !== "pending");
 
-  // Reassign positions: paid keep relative order, pending get pushed after
-  let pos = 1;
-  for (const t of active) { t.queue_position = pos++; changed = true; }
-  for (const t of pending) { t.queue_position = pos++; changed = true; }
+  // 3. Reassign numbers sequentially: E-001, E-002, E-003, ...
+  let seq = 1;
+  for (const t of active) {
+    const newNum = "E-" + pad(seq);
+    if (t.number !== newNum) {
+      t.number = newNum;
+      changed = true;
+    }
+    seq++;
+  }
+  for (const t of pending) {
+    const newNum = "E-" + pad(seq);
+    if (t.number !== newNum) {
+      t.number = newNum;
+      changed = true;
+    }
+    seq++;
+  }
 
   tickets = [...active, ...pending, ...others];
   if (changed) await saveTickets(env, tickets);
   return tickets;
-}
-
-// Bump unpaid holder: reassign their number to the end
-async function bumpTicket(env, ticketNumber) {
-  let tickets = await getTickets(env);
-  const ticket = tickets.find(t => t.number === ticketNumber && t.status === "pending");
-  if (!ticket) return null;
-
-  const counter = await getCounter(env);
-  const newNumber = "E-" + pad(counter + 1);
-  await env.DB.put("counter", String(counter + 1));
-
-  ticket.number = newNumber;
-  ticket.original_number = ticket.original_number || ticketNumber;
-  ticket.last_bumped_at = now();
-  ticket.bump_count = (ticket.bump_count || 0) + 1;
-
-  await saveTickets(env, tickets);
-  return ticket;
 }
 
 // ===== PALMPESA =====
@@ -173,8 +144,8 @@ export default {
     const base = parts[0];
     const param = parts[1] ? parts[1].toUpperCase() : null;
 
-    // Reassign queue on every request (keeps positions fresh)
-    let tickets = await reassignQueue(env);
+    // Reassign numbers on every request
+    let tickets = await reassignAllNumbers(env);
 
     // --- HEALTH ---
     if (path === "/api/health" || path === "/health" || path === "/") {
@@ -194,12 +165,8 @@ export default {
         pending: pending.length,
         expired: expired.length,
         waiting: active.length,
-        last_number: await getCounter(env),
         currently_serving: used.length,
         entry_fee: ENTRY_FEE,
-        timeout_minutes: TIMEOUT_MINUTES,
-        bump_interval_minutes: BUMP_INTERVAL_MINUTES,
-        max_paid_gap: MAX_PAID_GAP,
       });
     }
 
@@ -208,58 +175,52 @@ export default {
       const { name, phone, email } = body;
       if (!name || !phone) return json({ error: "Name and phone required" }, 400);
 
-      // Reassign queue first to get fresh positions
-      tickets = await reassignQueue(env);
-
-      const counter = await incCounter(env);
-      const number = "E-" + pad(counter);
+      // Reassign to get next sequential number
+      tickets = await reassignAllNumbers(env);
+      const nextNum = tickets.filter(t => t.status === "active" || t.status === "pending").length + 1;
+      const number = "E-" + pad(nextNum);
 
       tickets.push({
-        id: counter, number, name,
+        id: Date.now(), number, name,
         phone: phone.replace(/^\+/, ""),
         email: email || null,
         status: "pending",
-        queue_position: counter,
-        order_id: null, tx_id: null, channel: null,
         amount: ENTRY_FEE,
         created_at: now(),
-        paid_at: null, used_at: null,
-        expired_at: null,
-        last_bumped_at: null,
-        bump_count: 0,
+        paid_at: null, used_at: null, expired_at: null,
+        order_id: null, tx_id: null, channel: null,
       });
       await saveTickets(env, tickets);
 
-      return json({ success: true, ticket: { number, name, phone, position: counter, status: "pending", entry_fee: ENTRY_FEE } });
+      return json({ success: true, ticket: { number, name, phone, status: "pending", entry_fee: ENTRY_FEE } });
     }
 
-    // --- GET TICKET ---
-    if (base === "ticket" && param && method === "GET") {
-      const ticket = tickets.find(t => t.number === param);
+    // --- GET TICKET (by ID or number) ---
+    if (base === "ticket" && param) {
+      const ticket = tickets.find(t => t.number === param || t.id === param);
       if (!ticket) return json({ error: "Ticket not found" }, 404);
-      const ahead = tickets.filter(t => t.status === "active" && t.queue_position < ticket.queue_position).length;
-      const pendingAhead = tickets.filter(t => t.status === "pending" && t.queue_position < ticket.queue_position).length;
-      const isExp = isExpired(ticket, tickets);
-      const timeLeft = Math.max(0, TIMEOUT_MINUTES - minutesSince(ticket.created_at));
-      return json({
-        ticket: { ...ticket, ahead_in_queue: ahead, pending_ahead: pendingAhead, is_expired: isExp, minutes_left: Math.round(timeLeft) }
-      });
+      const ahead = tickets.filter(t => t.status === "active" && t.number < ticket.number).length;
+      const pendingAhead = tickets.filter(t => t.status === "pending" && t.number < ticket.number).length;
+      const timeLeft = ticket.status === "pending" ? Math.max(0, Math.round(TIMEOUT_MINUTES - minutesSince(ticket.created_at))) : 0;
+      return json({ ticket: { ...ticket, ahead_in_queue: ahead, pending_ahead: pendingAhead, minutes_left: timeLeft } });
     }
 
     // --- INITIATE PAYMENT ---
     if (base === "pay" && param && method === "POST") {
-      let ticket = tickets.find(t => t.number === param);
+      const ticket = tickets.find(t => t.number === param);
       if (!ticket) return json({ error: "Ticket not found" }, 404);
       if (ticket.status === "active") return json({ error: "Already paid" }, 400);
       if (ticket.status === "used") return json({ error: "Already used" }, 400);
       if (ticket.status === "expired") return json({ error: "Ticket expired. Get a new number." }, 400);
 
-      // Check if expired
-      if (isExpired(ticket, tickets)) {
-        ticket.status = "expired";
-        ticket.expired_at = now();
+      // Check expiration
+      const timeExpired = minutesSince(ticket.created_at) >= TIMEOUT_MINUTES;
+      const paidAfter = tickets.filter(x => x.status === "active" && x.created_at > ticket.created_at).length;
+      if (timeExpired || paidAfter >= MAX_PAID_GAP) {
+        ticket.status = "expired"; ticket.expired_at = now();
         await saveTickets(env, tickets);
-        return json({ error: "Ticket expired. Get a new number.", expired: true }, 400);
+        await reassignAllNumbers(env);
+        return json({ error: "Ticket expired. Your number was given to someone else.", expired: true }, 400);
       }
 
       const txId = "EMB_" + Date.now() + "_" + Math.floor(Math.random() * 1000);
@@ -286,25 +247,30 @@ export default {
 
     // --- CHECK PAYMENT ---
     if (base === "check-payment" && param && method === "POST") {
-      let ticket = tickets.find(t => t.number === param);
-      if (!ticket) return json({ error: "Not found" }, 404);
-
-      // Check expiration
-      if (ticket.status === "pending" && isExpired(ticket, tickets)) {
-        ticket.status = "expired";
-        ticket.expired_at = now();
-        await saveTickets(env, tickets);
-        return json({ status: "expired", message: "Ticket expired. Get a new number." }, 400);
+      const ticket = tickets.find(t => t.number === param);
+      if (!ticket) {
+        // Number may have changed - search by tx_id or order_id in body
+        return json({ error: "Not found - number may have changed" }, 404);
       }
 
+      if (ticket.status === "expired") return json({ status: "expired", message: "Ticket expired. Get a new number." }, 400);
       if (ticket.status === "active") {
-        const ahead = tickets.filter(t => t.status === "active" && t.queue_position < ticket.queue_position).length;
+        const ahead = tickets.filter(t => t.status === "active" && t.number < ticket.number).length;
         return json({ status: "active", ticket: { ...ticket, ahead_in_queue: ahead } });
       }
       if (ticket.status === "used") return json({ status: "used", ticket });
-      if (ticket.status === "expired") return json({ status: "expired", message: "Get a new number." }, 400);
 
-      // Poll PalmPesa for status
+      // Check expiration
+      const timeExpired = minutesSince(ticket.created_at) >= TIMEOUT_MINUTES;
+      const paidAfter = tickets.filter(x => x.status === "active" && x.created_at > ticket.created_at).length;
+      if (timeExpired || paidAfter >= MAX_PAID_GAP) {
+        ticket.status = "expired"; ticket.expired_at = now();
+        await saveTickets(env, tickets);
+        await reassignAllNumbers(env);
+        return json({ status: "expired", message: "Ticket expired. Your number was reassigned." }, 400);
+      }
+
+      // Poll PalmPesa
       if (ticket.order_id) {
         try {
           const data = await ppCheckOrder(ticket.order_id);
@@ -312,25 +278,17 @@ export default {
           if (pd && pd.payment_status === "COMPLETED") {
             ticket.status = "active"; ticket.paid_at = now();
             ticket.channel = pd.channel;
-            // Reassign queue: this paid ticket moves to front of active queue
-            tickets = await reassignQueue(env);
-            const ahead = tickets.filter(t => t.status === "active" && t.queue_position < ticket.queue_position).length;
+            await saveTickets(env, tickets);
+            // Reassign numbers: paid ticket moves to lowest available
+            tickets = await reassignAllNumbers(env);
+            const ahead = tickets.filter(t => t.status === "active" && t.number < ticket.number).length;
             return json({ status: "active", ticket: { ...ticket, ahead_in_queue: ahead } });
           }
         } catch(e) {}
       }
 
-      // Check if should bump
-      if (shouldBump(ticket)) {
-        const bumped = await bumpTicket(env, ticket.number);
-        if (bumped) {
-          return json({ status: "bumped", message: "You were bumped to " + bumped.number + " due to non-payment. Pay promptly to keep your position!", ticket: bumped });
-        }
-      }
-
-      const timeLeft = Math.max(0, TIMEOUT_MINUTES - minutesSince(ticket.created_at));
-      const paidAfter = tickets.filter(t => t.status === "active" && t.queue_position > ticket.queue_position).length;
-      return json({ status: "pending", ticket, minutes_left: Math.round(timeLeft), paid_after: paidAfter });
+      const timeLeft = Math.max(0, Math.round(TIMEOUT_MINUTES - minutesSince(ticket.created_at)));
+      return json({ status: "pending", ticket, minutes_left: timeLeft });
     }
 
     // --- WEBHOOK ---
@@ -346,8 +304,8 @@ export default {
           ticket.status = "active"; ticket.paid_at = now();
           ticket.channel = body.channel || (body.data && body.data[0] && body.data[0].channel);
           await saveTickets(env, tickets);
-          // Reassign queue after payment
-          await reassignQueue(env);
+          // Reassign all numbers after payment
+          await reassignAllNumbers(env);
           return json({ success: true, message: "Ticket activated", number: ticket.number });
         }
       }
@@ -377,7 +335,7 @@ export default {
       if (ticket.status === "used") return json({ error: "Already used" }, 400);
       ticket.status = "active"; ticket.paid_at = now(); ticket.channel = "manual";
       await saveTickets(env, tickets);
-      await reassignQueue(env);
+      await reassignAllNumbers(env);
       return json({ success: true, message: "Ticket manually activated", ticket: { number: ticket.number, name: ticket.name, status: "active" } });
     }
 
