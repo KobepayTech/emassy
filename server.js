@@ -205,6 +205,19 @@ const routes = {
     saveDB();
     return { granted: true, message: 'ENTRY GRANTED', ticket: { number: ticket.number, name: ticket.name, used_at: ticket.used_at } };
   },
+
+  // DEBUG/ADMIN: Manually activate a ticket (for testing when PalmPesa webhook fails)
+  'POST /api/admin/activate/:number': (body, params) => {
+    const ticket = DB.tickets.find(t => t.number === params.number);
+    if (!ticket) return { error: 'Ticket not found', status: 404 };
+    if (ticket.status === 'active') return { error: 'Already active', status: 400 };
+    if (ticket.status === 'used') return { error: 'Already used', status: 400 };
+    ticket.status = 'active';
+    ticket.paid_at = new Date().toISOString();
+    ticket.channel = 'manual';
+    saveDB();
+    return { success: true, message: 'Ticket manually activated', ticket: { number: ticket.number, name: ticket.name, status: 'active' } };
+  },
 };
 
 // ===== SERVE FRONTEND =====
