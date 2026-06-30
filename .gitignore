@@ -24,7 +24,6 @@ Thumbs.db
 # Wrangler
 .wrangler/
 wrangler.toml
-wrangler.jsonc
 
 # Build
 .dist/
