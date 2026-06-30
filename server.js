@@ -134,12 +134,16 @@ const routes = {
         transaction_id: txId,
         callback_url: `${CALLBACK_HOST}/api/webhook/palmpesa`,
       });
-      if (result.order_id) {
+      // Check if PalmPesa push actually succeeded (result.response.result === 'SUCCESS')
+      const ppResult = result.response && result.response.result;
+      const ppMessage = result.response && result.response.message;
+      if (ppResult === 'SUCCESS' && result.order_id) {
         ticket.order_id = result.order_id;
         saveDB();
-        return { success: true, message: 'Payment request sent', order_id: result.order_id };
+        return { success: true, message: 'Payment request sent! Check your phone.', order_id: result.order_id };
       }
-      return { error: 'Failed to initiate', details: result, status: 500 };
+      // Return actual PalmPesa error message
+      return { error: ppMessage || result.message || 'Payment initiation failed', details: result, status: 500 };
     } catch (err) {
       return { error: 'Payment failed: ' + err.message, status: 500 };
     }
