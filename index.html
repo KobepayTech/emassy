@@ -92,12 +92,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
   <div class="hdr"><h1>Embassy Entry Number System</h1><p>Get Your Number First, Pay to Activate</p></div>
   <div class="card card-gold">
     <div class="lbl">Welcome</div>
-    <p class="small" style="margin-bottom:1rem">Get your entry number instantly. Pay 5,000 TZS to activate it. Unpaid numbers are <strong style="color:#dc2626">RED</strong>, paid numbers turn <strong style="color:#059669">GREEN</strong>.</p>
+    <p class="small" style="margin-bottom:1rem">Get your entry number instantly. Pay 100 TZS to activate it. Unpaid numbers are <strong style="color:#dc2626">RED</strong>, paid numbers turn <strong style="color:#059669">GREEN</strong>.</p>
     <div class="stats"><div class="stat"><div class="val" id="st-total">-</div><div class="lbl2">Total</div></div><div class="stat"><div class="val" id="st-serving">-</div><div class="lbl2">Served</div></div><div class="stat"><div class="val" id="st-waiting">-</div><div class="lbl2">Waiting</div></div></div>
     <div class="error" id="st-error" style="display:none;margin-top:.75rem;text-align:center"></div>
   </div>
   <div class="card" style="text-align:center">
-    <div style="font-size:2rem;color:var(--a);font-weight:800;margin-bottom:.25rem">5,000 TZS</div>
+    <div style="font-size:2rem;color:var(--a);font-weight:800;margin-bottom:.25rem">100 TZS</div>
     <div class="lbl" style="margin-bottom:1rem">Entry Fee (Pay After Getting Number)</div>
     <button class="btn btn-primary" onclick="showView('register')">Get Your Entry Number &rarr;</button>
   </div>
@@ -130,8 +130,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
     </div>
     <div class="pay-section" id="t-pay-section">
       <div class="pay-title" id="t-pay-title">&#128308; Number Not Activated</div>
-      <div class="pay-desc" id="t-pay-desc">Pay 5,000 TZS to activate your entry number. You'll receive an STK push on your phone.</div>
-      <button class="btn btn-danger" id="btn-pay" onclick="initiatePayment()">Pay 5,000 TZS to Activate</button>
+      <div class="pay-desc" id="t-pay-desc">Pay 100 TZS to activate your entry number. You'll receive an STK push on your phone.</div>
+      <button class="btn btn-danger" id="btn-pay" onclick="initiatePayment()">Pay 100 TZS to Activate</button>
       <div class="polling" id="t-polling" style="display:none"><span class="spin" style="border-color:rgba(6,95,70,.3);border-top-color:#065f46"></span>Checking payment status...</div>
       <div class="success" id="t-pay-success"></div>
       <div class="error" id="t-pay-error"></div>
@@ -291,9 +291,9 @@ function showTicketView(ticket) {
   } else {
     paySec.className = 'pay-section';
     $('t-pay-title').innerHTML = '   Number Not Activated';
-    $('t-pay-desc').textContent = "Pay 5,000 TZS to activate. You'll receive an STK push on your phone.";
+    $('t-pay-desc').textContent = "Pay 100 TZS to activate. You'll receive an STK push on your phone.";
     $('btn-pay').style.display = 'flex';
-    $('btn-pay').textContent = 'Pay 5,000 TZS to Activate';
+    $('btn-pay').textContent = 'Pay 100 TZS to Activate';
     $('t-polling').style.display = 'none';
     $('t-pay-success').textContent = '';
     $('t-pay-error').textContent = '';
@@ -327,7 +327,7 @@ async function initiatePayment() {
       $('t-polling').style.display = 'flex';
       startPaymentPolling(currentTicket.number);
     } else { throw new Error(data.error || 'Payment failed'); }
-  } catch (e) { $('t-pay-error').textContent = e.message; btn.disabled = false; btn.textContent = 'Pay 5,000 TZS to Activate'; }
+  } catch (e) { $('t-pay-error').textContent = e.message; btn.disabled = false; btn.textContent = 'Pay 100 TZS to Activate'; }
 }
 
 function startPaymentPolling(number) {
