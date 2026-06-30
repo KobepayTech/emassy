@@ -69,20 +69,22 @@ async function reassignAllNumbers(env) {
   const pending = tickets.filter(t => t.status === "pending").sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
   const others = tickets.filter(t => t.status !== "active" && t.status !== "pending");
 
-  // 3. Reassign numbers sequentially: E-001, E-002, E-003, ...
+  // 3. Reassign numbers AND queue_position sequentially: E-001, E-002, E-003, ...
   let seq = 1;
   for (const t of active) {
     const newNum = "E-" + pad(seq);
-    if (t.number !== newNum) {
+    if (t.number !== newNum || t.queue_position !== seq) {
       t.number = newNum;
+      t.queue_position = seq;
       changed = true;
     }
     seq++;
   }
   for (const t of pending) {
     const newNum = "E-" + pad(seq);
-    if (t.number !== newNum) {
+    if (t.number !== newNum || t.queue_position !== seq) {
       t.number = newNum;
+      t.queue_position = seq;
       changed = true;
     }
     seq++;
