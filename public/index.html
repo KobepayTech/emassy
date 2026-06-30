@@ -131,8 +131,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
       <div class="status status-red" id="t-status"><span id="t-status-text">NOT PAID &mdash; Pay to Activate</span></div>
     </div>
     <div class="queue-box" id="t-queue-box">
-      <div class="ahead" id="t-ahead">-</div>
-      <div class="label">people ahead of you</div>
+      <div style="display:flex;gap:1rem;justify-content:center;margin-bottom:.5rem">
+        <div><div class="ahead" id="t-ahead-paid" style="font-size:1.5rem;color:#059669">-</div><div class="label">paid ahead</div></div>
+        <div><div class="ahead" id="t-ahead-pending" style="font-size:1.5rem;color:#d97706">-</div><div class="label">unpaid ahead</div></div>
+      </div>
+      <div class="label" id="t-ahead-total" style="margin-bottom:.5rem">- total ahead</div>
       <div class="queue-bar"><div class="queue-bar-fill" id="t-bar" style="width:0%"></div></div>
     </div>
     <div class="countdown-box" id="t-countdown-box" style="display:none">
@@ -292,9 +295,13 @@ function showTicketView(ticket) {
   else { st.className = 'status status-red'; stText.textContent = 'NOT PAID — Pay to Activate'; }
   if (!isUsed) {
     $('t-queue-box').style.display = 'block';
-    const ahead = ticket.ahead_in_queue || 0;
-    $('t-ahead').textContent = ahead;
-    $('t-bar').style.width = Math.min(100, Math.max(5, 100 - ahead * 10)) + '%';
+    const aheadPaid = ticket.ahead_in_queue || 0;
+    const aheadPending = ticket.pending_ahead || 0;
+    const aheadTotal = aheadPaid + aheadPending;
+    $('t-ahead-paid').textContent = aheadPaid;
+    $('t-ahead-pending').textContent = aheadPending;
+    $('t-ahead-total').textContent = aheadTotal + ' total ahead of you';
+    $('t-bar').style.width = Math.min(100, Math.max(5, 100 - aheadTotal * 5)) + '%';
   } else { $('t-queue-box').style.display = 'none'; }
   const paySec = $('t-pay-section');
   if (isUsed) { paySec.style.display = 'none'; $('t-countdown-box').style.display = 'none'; }
