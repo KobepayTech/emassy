@@ -10,6 +10,7 @@ const path = require('path');
 
 // ===== CONFIG =====
 const PORT = process.env.PORT || 3000;
+const CALLBACK_HOST = process.env.CALLBACK_HOST || 'https://embassy.kobeapptz.com';
 const PP_KEY = '0HNndAwG6NIXcksD1kRxHVHMgUtDi8GqgMfMQrymleH8HluAdA1ZRAl2jG3B';
 const PP_VENDOR = '531';
 const PP_BASE = 'https://palmpesa.drmlelwa.co.tz/api';
@@ -120,7 +121,7 @@ const routes = {
         name: ticket.name, email: ticket.email,
         phone: ticket.phone, amount: ticket.amount,
         transaction_id: txId,
-        callback_url: `http://localhost:${PORT}/api/webhook/palmpesa`,
+        callback_url: `${CALLBACK_HOST}/api/webhook/palmpesa`,
       });
       if (result.order_id) {
         ticket.order_id = result.order_id;
