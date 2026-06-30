@@ -74,6 +74,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .cam-overlay .reticle::after{bottom:-2px;right:-2px;border-width:0 4px 4px 0}
 .cam-overlay .hint{position:absolute;bottom:1rem;color:#fff;font-size:.8rem;text-shadow:0 1px 3px rgba(0,0,0,.8);background:rgba(0,0,0,.5);padding:.35rem .75rem;border-radius:999px}
 .polling{display:flex;align-items:center;justify-content:center;gap:.5rem;padding:.75rem;background:#f0fdf4;border-radius:var(--rd);margin-top:.5rem;font-size:.85rem;color:#065f46}
+.countdown-box{text-align:center;padding:1rem;background:#fef2f2;border:2px solid #fecaca;border-radius:var(--rd);margin-top:.75rem;animation:pulse 1s infinite}
+@keyframes pulse{0%,100%{border-color:#fecaca}50%{border-color:#ef4444}}
+.countdown-label{font-size:.85rem;color:#991b1b;font-weight:600;margin-bottom:.25rem}
+.countdown-timer{font-size:2.5rem;font-weight:800;color:#dc2626;font-family:monospace;line-height:1}
+.countdown-bar{height:6px;background:#fee2e2;border-radius:999px;margin-top:.5rem;overflow:hidden}
+.countdown-fill{height:100%;background:linear-gradient(90deg,#dc2626,#f87171);border-radius:999px;transition:width 1s linear}
+.countdown-bumps{font-size:.75rem;color:#991b1b;margin-top:.35rem}
 @keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
 .view{display:none;animation:fadeIn .3s ease}
 .view.active{display:block}
@@ -127,6 +134,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
       <div class="ahead" id="t-ahead">-</div>
       <div class="label">people ahead of you</div>
       <div class="queue-bar"><div class="queue-bar-fill" id="t-bar" style="width:0%"></div></div>
+    </div>
+    <div class="countdown-box" id="t-countdown-box" style="display:none">
+      <div class="countdown-label">Pay before your number changes!</div>
+      <div class="countdown-timer" id="t-countdown">05:00</div>
+      <div class="countdown-bar"><div class="countdown-fill" id="t-countdown-bar"></div></div>
+      <div class="countdown-bumps" id="t-bump-count"></div>
     </div>
     <div class="pay-section" id="t-pay-section">
       <div class="pay-title" id="t-pay-title">&#128308; Number Not Activated</div>
@@ -209,6 +222,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 const API = "https://embassy.kobeapptz.com";
 let currentTicket = null;
 let pollInterval = null;
+let bumpTimerInterval = null;
+let bumpSecondsLeft = 300;
 let cameraStream = null;
 let cameraScanning = false;
 let cameraDetector = null;
@@ -281,22 +296,24 @@ function showTicketView(ticket) {
     $('t-bar').style.width = Math.min(100, Math.max(5, 100 - ahead * 10)) + '%';
   } else { $('t-queue-box').style.display = 'none'; }
   const paySec = $('t-pay-section');
-  if (isUsed) { paySec.style.display = 'none'; }
+  if (isUsed) { paySec.style.display = 'none'; $('t-countdown-box').style.display = 'none'; }
   else if (isPaid) {
     paySec.className = 'pay-section paid';
-    $('t-pay-title').innerHTML = '   Number Activated';
+    $('t-pay-title').innerHTML = '&#9989; Number Activated';
     $('t-pay-desc').textContent = 'Your entry number is paid and ready for use.';
     $('btn-pay').style.display = 'none';
     $('t-polling').style.display = 'none';
+    $('t-countdown-box').style.display = 'none';
   } else {
     paySec.className = 'pay-section';
-    $('t-pay-title').innerHTML = '   Number Not Activated';
+    $('t-pay-title').innerHTML = '&#128308; Number Not Activated';
     $('t-pay-desc').textContent = "Pay 20,000 TZS to activate. You'll receive an STK push on your phone.";
     $('btn-pay').style.display = 'flex';
     $('btn-pay').textContent = 'Pay 20,000 TZS to Activate';
     $('t-polling').style.display = 'none';
     $('t-pay-success').textContent = '';
     $('t-pay-error').textContent = '';
+    $('t-countdown-box').style.display = 'block';
   }
   if (isUsed) {
     $('t-qr').style.display = 'none';
@@ -332,19 +349,71 @@ async function initiatePayment() {
 
 function startPaymentPolling(number) {
   if (pollInterval) clearInterval(pollInterval);
+  if (bumpTimerInterval) clearInterval(bumpTimerInterval);
+
+  // Check payment status every 5 seconds
   pollInterval = setInterval(async () => {
     try {
       const res = await fetch(API + '/api/check-payment/' + number, { method: 'POST' });
       const data = await res.json();
       if (data.status === 'active') {
         clearInterval(pollInterval);
+        clearInterval(bumpTimerInterval);
         currentTicket = data.ticket;
         showTicketView(data.ticket);
         toast('Payment received! Your number is now active.');
+      } else if (data.status === 'bumped') {
+        clearInterval(pollInterval);
+        clearInterval(bumpTimerInterval);
+        currentTicket = data.ticket;
+        showTicketView(data.ticket);
+        toast('Your number changed! You are now ' + data.ticket.number);
+        // Restart polling with new number
+        startPaymentPolling(data.ticket.number);
+      } else if (data.status === 'expired') {
+        clearInterval(pollInterval);
+        clearInterval(bumpTimerInterval);
+        $('t-countdown-box').style.display = 'none';
+        $('t-pay-error').textContent = 'Ticket expired. Get a new number.';
+      } else if (data.status === 'pending') {
+        // Update countdown from server
+        if (data.bump_in_seconds !== undefined) {
+          bumpSecondsLeft = data.bump_in_seconds;
+          updateCountdownDisplay(data.bump_count || 0);
+        }
       }
     } catch (e) {}
   }, 5000);
-  setTimeout(() => { if (pollInterval) { clearInterval(pollInterval); $('t-polling').style.display = 'none'; } }, 300000);
+
+  // Countdown timer updates every 1 second
+  bumpTimerInterval = setInterval(() => {
+    bumpSecondsLeft--;
+    if (bumpSecondsLeft <= 0) {
+      bumpSecondsLeft = 0;
+      // Trigger immediate check when countdown hits 0
+      clearInterval(bumpTimerInterval);
+    }
+    updateCountdownDisplay();
+  }, 1000);
+
+  // Auto-stop after 60 minutes
+  setTimeout(() => {
+    if (pollInterval) { clearInterval(pollInterval); }
+    if (bumpTimerInterval) { clearInterval(bumpTimerInterval); }
+  }, 3600000);
+}
+
+function updateCountdownDisplay(bumpCount) {
+  const mins = Math.floor(bumpSecondsLeft / 60);
+  const secs = bumpSecondsLeft % 60;
+  $('t-countdown').textContent = String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0');
+  const pct = (bumpSecondsLeft / 300) * 100;
+  $('t-countdown-bar').style.width = pct + '%';
+  if (bumpCount !== undefined && bumpCount > 0) {
+    $('t-bump-count').textContent = 'Bumped ' + bumpCount + ' time' + (bumpCount > 1 ? 's' : '') + ' - pay now to keep your number!';
+  } else {
+    $('t-bump-count').textContent = '';
+  }
 }
 
 function getTicketUrl() { return currentTicket ? window.location.origin + window.location.pathname + '?ticket=' + encodeURIComponent(currentTicket.number) : window.location.href; }
