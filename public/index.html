@@ -224,6 +224,7 @@ let currentTicket = null;
 let pollInterval = null;
 let bumpTimerInterval = null;
 let bumpSecondsLeft = 300;
+let currentBumpCount = 0;
 let cameraStream = null;
 let cameraScanning = false;
 let cameraDetector = null;
@@ -327,6 +328,11 @@ function showTicketView(ticket) {
     new QRCode($('t-qr-box'), { text: qrData, width: 170, height: 170, colorDark: '#1a365d', colorLight: '#fff', correctLevel: QRCode.CorrectLevel.M });
   }
   showView('ticket');
+
+  // Start countdown immediately for unpaid tickets
+  if (!isPaid && !isUsed) {
+    startPaymentPolling(ticket.number);
+  }
 }
 
 async function initiatePayment() {
@@ -347,9 +353,12 @@ async function initiatePayment() {
   } catch (e) { $('t-pay-error').textContent = e.message; btn.disabled = false; btn.textContent = 'Pay 20,000 TZS to Activate'; }
 }
 
-function startPaymentPolling(number) {
+function startPaymentPolling(number, initialSeconds, bumpCount) {
   if (pollInterval) clearInterval(pollInterval);
   if (bumpTimerInterval) clearInterval(bumpTimerInterval);
+  bumpSecondsLeft = initialSeconds || 300;
+  currentBumpCount = bumpCount || 0;
+  updateCountdownDisplay();
 
   // Check payment status every 5 seconds
   pollInterval = setInterval(async () => {
@@ -379,7 +388,8 @@ function startPaymentPolling(number) {
         // Update countdown from server
         if (data.bump_in_seconds !== undefined) {
           bumpSecondsLeft = data.bump_in_seconds;
-          updateCountdownDisplay(data.bump_count || 0);
+          currentBumpCount = data.bump_count || 0;
+          updateCountdownDisplay();
         }
       }
     } catch (e) {}
@@ -403,14 +413,14 @@ function startPaymentPolling(number) {
   }, 3600000);
 }
 
-function updateCountdownDisplay(bumpCount) {
+function updateCountdownDisplay() {
   const mins = Math.floor(bumpSecondsLeft / 60);
   const secs = bumpSecondsLeft % 60;
   $('t-countdown').textContent = String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0');
-  const pct = (bumpSecondsLeft / 300) * 100;
+  const pct = Math.max(0, (bumpSecondsLeft / 300) * 100);
   $('t-countdown-bar').style.width = pct + '%';
-  if (bumpCount !== undefined && bumpCount > 0) {
-    $('t-bump-count').textContent = 'Bumped ' + bumpCount + ' time' + (bumpCount > 1 ? 's' : '') + ' - pay now to keep your number!';
+  if (currentBumpCount > 0) {
+    $('t-bump-count').textContent = 'Bumped ' + currentBumpCount + ' time' + (currentBumpCount > 1 ? 's' : '') + ' - pay now to keep your number!';
   } else {
     $('t-bump-count').textContent = '';
   }
