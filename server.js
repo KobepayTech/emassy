@@ -90,7 +90,7 @@ const routes = {
       status: 'pending',
       queue_position: DB.counter,
       order_id: null, tx_id: null,
-      channel: null, amount: 5000,
+      channel: null, amount: 100,
       created_at: new Date().toISOString(),
       paid_at: null, used_at: null,
     });
