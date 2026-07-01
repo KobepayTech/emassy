@@ -356,7 +356,20 @@ async function initiatePayment() {
       $('btn-pay').style.display = 'none';
       $('t-polling').style.display = 'flex';
       startPaymentPolling(currentTicket.number);
-    } else { throw new Error(data.error || 'Payment failed'); }
+    } else { 
+      // Show full error details for debugging
+      let errMsg = data.error || 'Payment failed';
+      if (data.result_code) errMsg += ' (Code: ' + data.result_code + ')';
+      if (data.result_status) errMsg += ' [Status: ' + data.result_status + ']';
+      if (data.full_response) {
+        console.log('[PalmPesa Full Response]', JSON.stringify(data.full_response));
+        try {
+          const ppMsg = data.full_response.response && data.full_response.response.message;
+          if (ppMsg) errMsg = ppMsg;
+        } catch(e) {}
+      }
+      throw new Error(errMsg); 
+    }
   } catch (e) { $('t-pay-error').textContent = e.message; btn.disabled = false; btn.textContent = 'Pay 20,000 TZS to Activate'; }
 }
 
