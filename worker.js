@@ -243,16 +243,26 @@ export default {
           { name: ticket.name, email: ticket.email, phone: ticket.phone, amount: ticket.amount, txId },
           `https://${host}/api/webhook/palmpesa`
         );
-        const ppResult = result.response && result.response.result;
-        const ppMessage = result.response && result.response.message;
+        // Log full response for debugging
+        console.log("[PalmPesa]", JSON.stringify(result));
+        const ppResult = result && result.response && result.response.result;
+        const ppMessage = result && result.response && result.response.message;
+        const ppResultCode = result && result.response && result.response.resultcode;
         if (ppResult === "SUCCESS" && result.order_id) {
           ticket.order_id = result.order_id;
           await saveTickets(env, tickets);
           return json({ success: true, message: "Payment request sent! Check your phone.", order_id: result.order_id });
         }
-        return json({ error: ppMessage || result.message || "Payment initiation failed", details: result }, 500);
+        // Return full PalmPesa response for debugging
+        return json({ 
+          error: ppMessage || (result && result.message) || "Payment initiation failed", 
+          result_code: ppResultCode,
+          result_status: ppResult,
+          full_response: result 
+        }, 500);
       } catch (err) {
-        return json({ error: "Payment failed: " + err.message }, 500);
+        console.error("[PalmPesa Error]", err.message);
+        return json({ error: "Payment failed: " + err.message, stack: err.stack }, 500);
       }
     }
 
@@ -398,6 +408,21 @@ export default {
         bump_count: t.bump_count || 0,
       }));
       return json({ total: tickets.length, tickets: simplified });
+    }
+
+    // --- TEST: DIRECT PALMPESA CALL ---
+    if (path === "/api/test-pay" && method === "POST") {
+      try {
+        const testPhone = body.phone || "255754123456";
+        const testAmount = body.amount || 200;
+        const result = await ppInitiate(
+          { name: "Test User", email: "test@test.com", phone: testPhone, amount: testAmount, txId: "TEST_" + Date.now() },
+          `https://${host}/api/webhook/palmpesa`
+        );
+        return json({ test: true, palmpesa_response: result, phone_used: testPhone, amount: testAmount });
+      } catch (err) {
+        return json({ test: true, error: err.message, stack: err.stack }, 500);
+      }
     }
 
     return json({ error: "Not found" }, 404);
